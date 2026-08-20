@@ -11,7 +11,6 @@ using System.Threading.Tasks;
 
 class Program
 {
-    private const string GROUP = "Turkey";
     private const string OUTPUT_FILENAME = "nernur.txt";
     private const int FETCH_TIMEOUT_SECONDS = 15;
 
@@ -36,24 +35,26 @@ class Program
         try
         {
             Console.WriteLine("[DEBUG] Uygulama başlatıldı.");
-            Console.WriteLine($"[DEBUG] Çalışma dizini: {Directory.GetCurrentDirectory()}");
-
+            
             var rawItems = await FetchAllAsync();
-            Console.WriteLine($"[DEBUG] FetchAllAsync tamamlandı, {rawItems.Count} raw öğe döndü.");
+            Console.WriteLine($"[DEBUG] Çekilen Toplam Kanal Sayısı (Filtresiz): {rawItems.Count}");
 
-            var items = DeduplicateItems(rawItems);
+            // Türkiye kanallarını kod içinde filtrele (API filtresi yerine)
+            var turkishItems = rawItems.Where(x => IsTurkishChannel(x)).ToList();
+            Console.WriteLine($"[DEBUG] Filtrelenen Türkçe Kanal Sayısı: {turkishItems.Count}");
+
+            var items = DeduplicateItems(turkishItems);
             items = items.OrderBy(x => SanitizeName(x.Name).ToLowerInvariant()).ToList();
 
             if (items.Count == 0)
             {
-                Console.WriteLine("[UYARI] İşlenecek kanal bulunamadı!");
+                Console.WriteLine("[KRITIK UYARI] Hiçbir Türkçe kanal bulunamadı!");
             }
 
             var m3uContent = ToM3u(items);
             string outputPath = Path.Combine(Directory.GetCurrentDirectory(), OUTPUT_FILENAME);
             await File.WriteAllTextAsync(outputPath, m3uContent, Encoding.UTF8);
 
-            Console.WriteLine($"[DEBUG] M3U dosyası yazıldı: {outputPath}");
             Console.WriteLine($"[BASARILI] Dosya oluşturuldu: {outputPath} ({items.Count} kanal)");
         }
         catch (Exception ex)
@@ -80,7 +81,7 @@ class Program
         while (true)
         {
             page++;
-            var data = await FetchPageWithProxyFallbackAsync(client, cursor);
+            var data = await FetchPageAsync(client, cursor);
 
             if (data?.Items != null && data.Items.Count > 0)
             {
@@ -89,12 +90,12 @@ class Program
             }
             else
             {
-                Console.WriteLine($"[DEBUG] Sayfa {page}: Veri alınamadı veya liste sonuna ulaşıldı.");
+                Console.WriteLine($"[DEBUG] Sayfa {page}: Veri sonlandı veya alınamadı.");
                 break;
             }
 
             cursor = data?.NextCursor;
-            if (page >= 200 || string.IsNullOrEmpty(cursor))
+            if (page >= 100 || string.IsNullOrEmpty(cursor))
             {
                 break;
             }
@@ -103,18 +104,11 @@ class Program
         return items;
     }
 
-    private static async Task<VavooResponse?> FetchPageWithProxyFallbackAsync(HttpClient client, string? cursor)
+    private static async Task<VavooResponse?> FetchPageAsync(HttpClient client, string? cursor)
     {
+        // Filtresiz minimalist istek gövdesi (API kısıtlamalarını aşmak için)
         var bodyObj = new
         {
-            language = "de",
-            region = "DE",
-            catalogId = "iptv",
-            id = "",
-            adult = false,
-            search = "",
-            sort = "name",
-            filter = new { group = GROUP },
             cursor = cursor
         };
 
@@ -126,19 +120,18 @@ class Program
             "https://vavoo.to/vto-cluster/mediahubmx-catalog.json"
         };
 
-        // Doğrudan isteklerin yanında Worker Proxy'leri üzerinden istek atmayı dener
         foreach (var endpoint in targetEndpoints)
         {
-            // 1. Doğrudan Endpoint Denemesi
-            var directResult = await SendPostAsync(client, endpoint, jsonBody);
-            if (directResult != null) return directResult;
+            // Doğrudan dene
+            var result = await SendPostAsync(client, endpoint, jsonBody);
+            if (result?.Items != null && result.Items.Count > 0) return result;
 
-            // 2. Worker Proxy'leri Üzerinden Deneme
+            // Worker Proxy'leri üzerinden dene
             foreach (var proxy in PROXIES)
             {
                 string proxiedUrl = $"{proxy.TrimEnd('/')}/?url={Uri.EscapeDataString(endpoint)}";
-                var proxyResult = await SendPostAsync(client, proxiedUrl, jsonBody);
-                if (proxyResult != null) return proxyResult;
+                result = await SendPostAsync(client, proxiedUrl, jsonBody);
+                if (result?.Items != null && result.Items.Count > 0) return result;
             }
         }
 
@@ -164,20 +157,32 @@ class Program
             {
                 var rawResponse = await response.Content.ReadAsStringAsync();
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var result = JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
-
-                if (result?.Items != null && result.Items.Count > 0)
-                {
-                    return result;
-                }
+                return JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
             }
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"[DEBUG] İstek başarısız ({url}): {ex.Message}");
+            // İptal/Zamanaşımı durumunda sessizce bir sonraki proxy'e geçer
         }
 
         return null;
+    }
+
+    private static bool IsTurkishChannel(VavooItem item)
+    {
+        if (string.IsNullOrEmpty(item.Name)) return false;
+
+        // Isimde 'TR:' geçenler veya bilinen Türkçe kanal adları
+        if (Regex.IsMatch(item.Name, @"\bTR\b|TR:", RegexOptions.IgnoreCase)) return true;
+
+        var name = item.Name.ToUpperInvariant();
+        string[] trKeywords = { 
+            "BEIN", "EXXEN", "S SPORT", "SPOR SMART", "TRT", "KANAL D", "ATV", "STAR", 
+            "SHOW", "NOW", "TV8", "HABERTURK", "HALK TV", "TELE1", "A HABER", "A SPOR", 
+            "DMAX", "TEVE2", "A2", "TGRT", "LIDER", "CINEMA", "SINEMA" 
+        };
+
+        return trKeywords.Any(kw => name.Contains(kw));
     }
 
     private static string SanitizeName(string? name)
