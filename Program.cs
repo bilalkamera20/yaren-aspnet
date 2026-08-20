@@ -35,15 +35,16 @@ class Program
     {
         try
         {
-            Console.WriteLine("[BILGI] Vavoo API veri cekme işlemi başlatılıyor...");
+            Console.WriteLine("[DEBUG] Uygulama başlatıldı.");
+            Console.WriteLine($"[DEBUG] Çalışma dizini: {Directory.GetCurrentDirectory()}");
 
             var rawItems = await FetchAllAsync();
-            Console.WriteLine($"[BILGI] Toplam çekilen ham kanal sayısı: {rawItems.Count}");
+            Console.WriteLine($"[DEBUG] FetchAllAsync tamamlandı, {rawItems.Count} öğe döndü.");
 
             if (rawItems.Count == 0)
             {
                 Console.WriteLine("[HATA] API'den hiçbir kanal çekilemedi.");
-                Environment.Exit(1);
+                // Environment.Exit(1); // Debug için devre dışı
             }
 
             var items = DeduplicateItems(rawItems);
@@ -53,12 +54,13 @@ class Program
             string outputPath = Path.Combine(Directory.GetCurrentDirectory(), OUTPUT_FILENAME);
             await File.WriteAllTextAsync(outputPath, m3uContent, Encoding.UTF8);
 
+            Console.WriteLine($"[DEBUG] M3U dosyası yazıldı: {outputPath}");
             Console.WriteLine($"[BASARILI] Dosya oluşturuldu: {outputPath} ({items.Count} kanal)");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[KRITIK HATA] {ex.Message}");
-            Environment.Exit(1);
+            // Environment.Exit(1); // Debug için devre dışı
         }
     }
 
@@ -84,11 +86,11 @@ class Program
             if (data?.Items != null && data.Items.Count > 0)
             {
                 items.AddRange(data.Items);
-                Console.WriteLine($"Sayfa {page}: {data.Items.Count} kanal eklendi.");
+                Console.WriteLine($"[DEBUG] Sayfa {page}: {data.Items.Count} kanal eklendi.");
             }
             else
             {
-                Console.WriteLine($"Sayfa {page}: Veri alınamadı veya liste sonuna ulaşıldı.");
+                Console.WriteLine($"[DEBUG] Sayfa {page}: Veri alınamadı veya liste sonuna ulaşıldı.");
                 break;
             }
 
@@ -119,7 +121,6 @@ class Program
 
         var jsonBody = JsonSerializer.Serialize(bodyObj);
 
-        // API İstek uç noktaları
         var endpoints = new List<string>
         {
             "https://vavoo.to/mediahubmx-catalog.json",
@@ -130,10 +131,12 @@ class Program
         {
             try
             {
+                Console.WriteLine($"[DEBUG] Denenen endpoint: {url}");
+
                 using var request = new HttpRequestMessage(HttpMethod.Post, url)
                 {
                     Content = new StringContent(jsonBody, Encoding.UTF8, "application/json"),
-                    Version = HttpVersion.Version11 // HTTP/1.1 kullanımı zorunlu kılındı
+                    Version = HttpVersion.Version11
                 };
 
                 request.Headers.Add("User-Agent", "MediaHubMX/2.0.0");
@@ -154,8 +157,9 @@ class Program
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Console.WriteLine($"[DEBUG] Endpoint hatası: {ex.Message}");
                 continue;
             }
         }
@@ -221,39 +225,4 @@ class Program
     private static string ToM3u(List<VavooItem> items)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("#EXTM3U");
-
-        foreach (var it in items)
-        {
-            var name = SanitizeName(it.Name);
-            if (string.IsNullOrEmpty(name)) continue;
-
-            var group = Categorize(name);
-            var streamUrl = ToStreamUrl(it.Url ?? "");
-
-            sb.AppendLine($"#EXTINF:-1 tvg-id=\"{it.Ids?.Id}\" tvg-name=\"{name}\" tvg-logo=\"{it.Logo}\" group-title=\"{group}\",{name}");
-            sb.AppendLine(streamUrl);
-        }
-
-        return sb.ToString();
-    }
-}
-
-public class VavooResponse
-{
-    public List<VavooItem>? Items { get; set; }
-    public string? NextCursor { get; set; }
-}
-
-public class VavooItem
-{
-    public string? Name { get; set; }
-    public string? Url { get; set; }
-    public string? Logo { get; set; }
-    public VavooIds? Ids { get; set; }
-}
-
-public class VavooIds
-{
-    public string? Id { get; set; }
-}
+        sb.AppendLine("#
