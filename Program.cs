@@ -216,48 +216,14 @@ class Program
 
             if (seen.Add(key))
             {
-                filtered.Add(item
-                                 private static string ToM3u(List<VavooItem> items)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("#EXTM3U");
-
-        foreach (var it in items)
-        {
-            var name = SanitizeName(it.Name);
-            if (string.IsNullOrEmpty(name)) continue;
-
-            var group = Categorize(name);
-            var streamUrl = ToStreamUrl(it.Url ?? "");
-
-            sb.AppendLine($"#EXTINF:-1 tvg-id=\"{it.Ids?.Id}\" tvg-name=\"{name}\" tvg-logo=\"{it.Logo}\" group-title=\"{group}\",{name}");
-            sb.AppendLine(streamUrl);
+                filtered.Add(item);
+            }
         }
 
-        return sb.ToString();
+        return filtered;
     }
-}
 
-// --- Model sınıfları ---
-public class VavooResponse
-{
-    public List<VavooItem>? Items { get; set; }
-    public string? NextCursor { get; set; }
-}
-
-public class VavooItem
-{
-    public string? Name { get; set; }
-    public string? Url { get; set; }
-    public string? Logo { get; set; }
-    public VavooIds? Ids { get; set; }
-}
-
-public class VavooIds
-{
-    public string? Id { get; set; }
-}
-                                 private static string ToM3u(List<VavooItem> items)
+    private static string ToM3u(List<VavooItem> items)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#EXTM3U");
