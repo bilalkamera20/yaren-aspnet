@@ -151,78 +151,44 @@ class Program
                     var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                     var result = JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
 
-                    if (result != null && result.Items != null && result.Items.Count > 0)
-                    {
-                        return result;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DEBUG] Endpoint hatası: {ex.Message}");
-                continue;
-            }
-        }
-
-        return null;
-    }
-
-    private static string SanitizeName(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return "";
-        var s = Regex.Replace(name, @"^\s*(?:[A-Z0-9-]+\s+)*TR:\s*", "", RegexOptions.IgnoreCase);
-        s = Regex.Replace(s, @"\s*\.(?:b|c|s)\b", "", RegexOptions.IgnoreCase);
-        return Regex.Replace(s, @"\s+", " ").Trim();
-    }
-
-    private static string Categorize(string name)
-    {
-        var clean = Regex.Replace(SanitizeName(name), @"\s+(?:UHD|FHD|HD\+|HD|SD|HEVC|RAW|H265|H\.265|FEED)(?=\s|$)", " ", RegexOptions.IgnoreCase);
-
-        if (Regex.IsMatch(clean, @"\b(BEIN SPO[RT]{0,3}S?|BEIN 1|S[- ]?SPORTS?|S SPORT|SPOR SMART|EUROSPORT|TRT SPOR|EXXEN SPO[RT]?|A SPOR)\b", RegexOptions.IgnoreCase))
-            return "TR SPOR";
-        if (Regex.IsMatch(clean, @"\b(CARTOON|DISNEY|NICK|MINIKA|TRT ?[ÇC]?OCUK)\b", RegexOptions.IgnoreCase))
-            return "TR ÇOCUK";
-        if (Regex.IsMatch(clean, @"\b(DISCOVERY|NATIONAL GEOGRAPHIC|NAT ?GEO|HISTORY|TRT BELGESEL|DMAX)\b", RegexOptions.IgnoreCase))
-            return "TR BELGESEL";
-        if (Regex.IsMatch(clean, @"\b(SINEMA|CINEMA|MOVIES?|BEIN MOVIES|YESILCAM)\b", RegexOptions.IgnoreCase))
-            return "TR SİNEMA";
-        if (Regex.IsMatch(clean, @"\b(HABER|NEWS|CNN|HALK TV|TELE ?1|SOZCU|TRT WORLD|A HABER)\b", RegexOptions.IgnoreCase))
-            return "TR HABER";
-        if (Regex.IsMatch(clean, @"\b(TRT 1|KANAL D|ATV|STAR|SHOW|NOW|TV8|BEYAZ)\b", RegexOptions.IgnoreCase))
-            return "TR ULUSAL";
-
-        return "TR GENEL";
-    }
-
-    private static string ToStreamUrl(string url)
-    {
-        if (string.IsNullOrEmpty(url)) return "";
-
-        var currentProxy = PROXIES[proxyIndex];
-        proxyIndex = (proxyIndex + 1) % PROXIES.Count;
-        return $"{currentProxy.TrimEnd('/')}/?url={Uri.EscapeDataString(url)}&master&transport=http&.m3u8";
-    }
-
-    private static List<VavooItem> DeduplicateItems(List<VavooItem> items)
-    {
-        var seen = new HashSet<string>();
-        var filtered = new List<VavooItem>();
-
-        foreach (var item in items)
-        {
-            if (string.IsNullOrEmpty(item.Url)) continue;
-            var key = item.Ids?.Id != null ? $"{item.Ids.Id}-{item.Url}" : item.Url;
-
-            if (seen.Add(key))
-            {
-                filtered.Add(item);
-            }
-        }
-        return filtered;
-    }
-
-    private static string ToM3u(List<VavooItem> items)
+                    if (result != null && result.Items
+                            private static string ToM3u(List<VavooItem> items)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("#
+        sb.AppendLine("#EXTM3U");
+
+        foreach (var it in items)
+        {
+            var name = SanitizeName(it.Name);
+            if (string.IsNullOrEmpty(name)) continue;
+
+            var group = Categorize(name);
+            var streamUrl = ToStreamUrl(it.Url ?? "");
+
+            sb.AppendLine($"#EXTINF:-1 tvg-id=\"{it.Ids?.Id}\" tvg-name=\"{name}\" tvg-logo=\"{it.Logo}\" group-title=\"{group}\",{name}");
+            sb.AppendLine(streamUrl);
+        }
+
+        return sb.ToString();
+    }
+}
+
+// --- Model sınıfları ---
+public class VavooResponse
+{
+    public List<VavooItem>? Items { get; set; }
+    public string? NextCursor { get; set; }
+}
+
+public class VavooItem
+{
+    public string? Name { get; set; }
+    public string? Url { get; set; }
+    public string? Logo { get; set; }
+    public VavooIds? Ids { get; set; }
+}
+
+public class VavooIds
+{
+    public string? Id { get; set; }
+}
