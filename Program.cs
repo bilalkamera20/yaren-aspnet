@@ -35,12 +35,11 @@ class Program
         try
         {
             Console.WriteLine("[DEBUG] Uygulama başlatıldı.");
-            
-            var rawItems = await FetchAllAsync();
-            Console.WriteLine($"[DEBUG] Çekilen Toplam Kanal Sayısı (Filtresiz): {rawItems.Count}");
 
-            // Türkiye kanallarını kod içinde filtrele (API filtresi yerine)
-            var turkishItems = rawItems.Where(x => IsTurkishChannel(x)).ToList();
+            var rawItems = await FetchAllAsync();
+            Console.WriteLine($"[DEBUG] Çekilen Toplam Kanal Sayısı: {rawItems.Count}");
+
+            var turkishItems = rawItems.Where(IsTurkishChannel).ToList();
             Console.WriteLine($"[DEBUG] Filtrelenen Türkçe Kanal Sayısı: {turkishItems.Count}");
 
             var items = DeduplicateItems(turkishItems);
@@ -48,7 +47,7 @@ class Program
 
             if (items.Count == 0)
             {
-                Console.WriteLine("[KRITIK UYARI] Hiçbir Türkçe kanal bulunamadı!");
+                Console.WriteLine("[UYARI] Hiçbir kanal işlenemedi!");
             }
 
             var m3uContent = ToM3u(items);
@@ -90,7 +89,7 @@ class Program
             }
             else
             {
-                Console.WriteLine($"[DEBUG] Sayfa {page}: Veri sonlandı veya alınamadı.");
+                Console.WriteLine($"[DEBUG] Sayfa {page}: Veri sonlandı veya veriye ulaşılamadı.");
                 break;
             }
 
@@ -106,50 +105,54 @@ class Program
 
     private static async Task<VavooResponse?> FetchPageAsync(HttpClient client, string? cursor)
     {
-        // Filtresiz minimalist istek gövdesi (API kısıtlamalarını aşmak için)
-        var bodyObj = new
-        {
-            cursor = cursor
-        };
-
-        var jsonBody = JsonSerializer.Serialize(bodyObj);
-
         var targetEndpoints = new List<string>
         {
             "https://vavoo.to/mediahubmx-catalog.json",
             "https://vavoo.to/vto-cluster/mediahubmx-catalog.json"
         };
 
-        foreach (var endpoint in targetEndpoints)
+        foreach (var baseEndpoint in targetEndpoints)
         {
-            // Doğrudan dene
-            var result = await SendPostAsync(client, endpoint, jsonBody);
-            if (result?.Items != null && result.Items.Count > 0) return result;
+            string endpoint = string.IsNullOrEmpty(cursor) ? baseEndpoint : $"{baseEndpoint}?cursor={cursor}";
 
-            // Worker Proxy'leri üzerinden dene
+            // 1. Doğrudan GET
+            var res = await SendRequestAsync(client, HttpMethod.Get, endpoint, null);
+            if (res?.Items != null && res.Items.Count > 0) return res;
+
+            // 2. Doğrudan POST
+            var bodyObj = new { cursor = cursor, group = "Turkey" };
+            var jsonBody = JsonSerializer.Serialize(bodyObj);
+            res = await SendRequestAsync(client, HttpMethod.Post, endpoint, jsonBody);
+            if (res?.Items != null && res.Items.Count > 0) return res;
+
+            // 3. Proxy'ler üzerinden GET/POST
             foreach (var proxy in PROXIES)
             {
                 string proxiedUrl = $"{proxy.TrimEnd('/')}/?url={Uri.EscapeDataString(endpoint)}";
-                result = await SendPostAsync(client, proxiedUrl, jsonBody);
-                if (result?.Items != null && result.Items.Count > 0) return result;
+                res = await SendRequestAsync(client, HttpMethod.Get, proxiedUrl, null);
+                if (res?.Items != null && res.Items.Count > 0) return res;
+
+                res = await SendRequestAsync(client, HttpMethod.Post, proxiedUrl, jsonBody);
+                if (res?.Items != null && res.Items.Count > 0) return res;
             }
         }
 
         return null;
     }
 
-    private static async Task<VavooResponse?> SendPostAsync(HttpClient client, string url, string jsonBody)
+    private static async Task<VavooResponse?> SendRequestAsync(HttpClient client, HttpMethod method, string url, string? jsonBody)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(jsonBody, Encoding.UTF8, "application/json"),
-                Version = HttpVersion.Version11
-            };
-
+            using var request = new HttpRequestMessage(method, url);
             request.Headers.Add("User-Agent", "MediaHubMX/2.0.0");
-            request.Headers.Add("Accept", "application/json");
+            request.Headers.Add("Accept", "application/json, text/plain, */*");
+            request.Headers.Add("Accept-Language", "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7");
+
+            if (method == HttpMethod.Post && !string.IsNullOrEmpty(jsonBody))
+            {
+                request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            }
 
             var response = await client.SendAsync(request);
 
@@ -162,7 +165,7 @@ class Program
         }
         catch
         {
-            // İptal/Zamanaşımı durumunda sessizce bir sonraki proxy'e geçer
+            // Bağlantı reddi veya zamanaşımında sonraki kanala/proxy'ye geç
         }
 
         return null;
@@ -172,14 +175,13 @@ class Program
     {
         if (string.IsNullOrEmpty(item.Name)) return false;
 
-        // Isimde 'TR:' geçenler veya bilinen Türkçe kanal adları
         if (Regex.IsMatch(item.Name, @"\bTR\b|TR:", RegexOptions.IgnoreCase)) return true;
 
         var name = item.Name.ToUpperInvariant();
-        string[] trKeywords = { 
-            "BEIN", "EXXEN", "S SPORT", "SPOR SMART", "TRT", "KANAL D", "ATV", "STAR", 
-            "SHOW", "NOW", "TV8", "HABERTURK", "HALK TV", "TELE1", "A HABER", "A SPOR", 
-            "DMAX", "TEVE2", "A2", "TGRT", "LIDER", "CINEMA", "SINEMA" 
+        string[] trKeywords = {
+            "BEIN", "EXXEN", "S SPORT", "SPOR SMART", "TRT", "KANAL D", "ATV", "STAR",
+            "SHOW", "NOW", "TV8", "HABERTURK", "HALK TV", "TELE1", "A HABER", "A SPOR",
+            "DMAX", "TEVE2", "A2", "TGRT", "CINEMA", "SINEMA"
         };
 
         return trKeywords.Any(kw => name.Contains(kw));
