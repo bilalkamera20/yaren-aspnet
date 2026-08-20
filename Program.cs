@@ -39,16 +39,15 @@ class Program
             Console.WriteLine($"[DEBUG] Çalışma dizini: {Directory.GetCurrentDirectory()}");
 
             var rawItems = await FetchAllAsync();
-            Console.WriteLine($"[DEBUG] FetchAllAsync tamamlandı, {rawItems.Count} öğe döndü.");
-
-            if (rawItems.Count == 0)
-            {
-                Console.WriteLine("[HATA] API'den hiçbir kanal çekilemedi.");
-                // Environment.Exit(1); // Debug için devre dışı
-            }
+            Console.WriteLine($"[DEBUG] FetchAllAsync tamamlandı, {rawItems.Count} raw öğe döndü.");
 
             var items = DeduplicateItems(rawItems);
             items = items.OrderBy(x => SanitizeName(x.Name).ToLowerInvariant()).ToList();
+
+            if (items.Count == 0)
+            {
+                Console.WriteLine("[UYARI] İşlenecek kanal bulunamadı!");
+            }
 
             var m3uContent = ToM3u(items);
             string outputPath = Path.Combine(Directory.GetCurrentDirectory(), OUTPUT_FILENAME);
@@ -59,8 +58,8 @@ class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[KRITIK HATA] {ex.Message}");
-            // Environment.Exit(1); // Debug için devre dışı
+            Console.WriteLine($"[KRITIK HATA] {ex.Message}\n{ex.StackTrace}");
+            Environment.Exit(1);
         }
     }
 
@@ -121,47 +120,61 @@ class Program
 
         var jsonBody = JsonSerializer.Serialize(bodyObj);
 
-        var endpoints = new List<string>
+        var targetEndpoints = new List<string>
         {
             "https://vavoo.to/mediahubmx-catalog.json",
             "https://vavoo.to/vto-cluster/mediahubmx-catalog.json"
         };
 
-        foreach (var url in endpoints)
+        // Doğrudan isteklerin yanında Worker Proxy'leri üzerinden istek atmayı dener
+        foreach (var endpoint in targetEndpoints)
         {
-            try
+            // 1. Doğrudan Endpoint Denemesi
+            var directResult = await SendPostAsync(client, endpoint, jsonBody);
+            if (directResult != null) return directResult;
+
+            // 2. Worker Proxy'leri Üzerinden Deneme
+            foreach (var proxy in PROXIES)
             {
-                Console.WriteLine($"[DEBUG] Denenen endpoint: {url}");
+                string proxiedUrl = $"{proxy.TrimEnd('/')}/?url={Uri.EscapeDataString(endpoint)}";
+                var proxyResult = await SendPostAsync(client, proxiedUrl, jsonBody);
+                if (proxyResult != null) return proxyResult;
+            }
+        }
 
-                using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        return null;
+    }
+
+    private static async Task<VavooResponse?> SendPostAsync(HttpClient client, string url, string jsonBody)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(jsonBody, Encoding.UTF8, "application/json"),
+                Version = HttpVersion.Version11
+            };
+
+            request.Headers.Add("User-Agent", "MediaHubMX/2.0.0");
+            request.Headers.Add("Accept", "application/json");
+
+            var response = await client.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var rawResponse = await response.Content.ReadAsStringAsync();
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var result = JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
+
+                if (result?.Items != null && result.Items.Count > 0)
                 {
-                    Content = new StringContent(jsonBody, Encoding.UTF8, "application/json"),
-                    Version = HttpVersion.Version11
-                };
-
-                request.Headers.Add("User-Agent", "MediaHubMX/2.0.0");
-                request.Headers.Add("Accept", "application/json");
-                request.Headers.Add("Accept-Encoding", "gzip, deflate");
-
-                var response = await client.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var rawResponse = await response.Content.ReadAsStringAsync();
-                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var result = JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
-
-                    if (result != null && result.Items != null && result.Items.Count > 0)
-                    {
-                        return result;
-                    }
+                    return result;
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DEBUG] Endpoint hatası: {ex.Message}");
-                continue;
-            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DEBUG] İstek başarısız ({url}): {ex.Message}");
         }
 
         return null;
@@ -244,7 +257,6 @@ class Program
     }
 }
 
-// --- Model sınıfları ---
 public class VavooResponse
 {
     public List<VavooItem>? Items { get; set; }
