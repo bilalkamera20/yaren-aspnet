@@ -45,11 +45,6 @@ class Program
             var items = DeduplicateItems(turkishItems);
             items = items.OrderBy(x => SanitizeName(x.Name).ToLowerInvariant()).ToList();
 
-            if (items.Count == 0)
-            {
-                Console.WriteLine("[UYARI] Hiçbir kanal işlenemedi!");
-            }
-
             var m3uContent = ToM3u(items);
             string outputPath = Path.Combine(Directory.GetCurrentDirectory(), OUTPUT_FILENAME);
             await File.WriteAllTextAsync(outputPath, m3uContent, Encoding.UTF8);
@@ -66,8 +61,6 @@ class Program
     private static async Task<List<VavooItem>> FetchAllAsync()
     {
         var items = new List<VavooItem>();
-        string? cursor = null;
-        int page = 0;
 
         using var handler = new HttpClientHandler
         {
@@ -77,82 +70,49 @@ class Program
 
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(FETCH_TIMEOUT_SECONDS) };
 
-        while (true)
+        // Vavoo güncel kanallarını barındıran uç noktalar
+        var targetEndpoints = new List<string>
         {
-            page++;
-            var data = await FetchPageAsync(client, cursor);
+            "https://vavoo.to/channels",
+            "https://vavoo.to/vto-cluster/channels",
+            "https://vavoo.to/mediahubmx-catalog.json"
+        };
 
-            if (data?.Items != null && data.Items.Count > 0)
+        foreach (var endpoint in targetEndpoints)
+        {
+            // Direct GET
+            var fetched = await TryFetchAsync(client, endpoint);
+            if (fetched.Count > 0)
             {
-                items.AddRange(data.Items);
-                Console.WriteLine($"[DEBUG] Sayfa {page}: {data.Items.Count} kanal eklendi.");
-            }
-            else
-            {
-                Console.WriteLine($"[DEBUG] Sayfa {page}: Veri sonlandı veya veriye ulaşılamadı.");
+                items.AddRange(fetched);
                 break;
             }
 
-            cursor = data?.NextCursor;
-            if (page >= 100 || string.IsNullOrEmpty(cursor))
+            // Worker Proxies üzerinden GET
+            foreach (var proxy in PROXIES)
             {
-                break;
+                string proxiedUrl = $"{proxy.TrimEnd('/')}/?url={Uri.EscapeDataString(endpoint)}";
+                fetched = await TryFetchAsync(client, proxiedUrl);
+                if (fetched.Count > 0)
+                {
+                    items.AddRange(fetched);
+                    break;
+                }
             }
+
+            if (items.Count > 0) break;
         }
 
         return items;
     }
 
-    private static async Task<VavooResponse?> FetchPageAsync(HttpClient client, string? cursor)
-    {
-        var targetEndpoints = new List<string>
-        {
-            "https://vavoo.to/mediahubmx-catalog.json",
-            "https://vavoo.to/vto-cluster/mediahubmx-catalog.json"
-        };
-
-        foreach (var baseEndpoint in targetEndpoints)
-        {
-            string endpoint = string.IsNullOrEmpty(cursor) ? baseEndpoint : $"{baseEndpoint}?cursor={cursor}";
-
-            // 1. Doğrudan GET
-            var res = await SendRequestAsync(client, HttpMethod.Get, endpoint, null);
-            if (res?.Items != null && res.Items.Count > 0) return res;
-
-            // 2. Doğrudan POST
-            var bodyObj = new { cursor = cursor, group = "Turkey" };
-            var jsonBody = JsonSerializer.Serialize(bodyObj);
-            res = await SendRequestAsync(client, HttpMethod.Post, endpoint, jsonBody);
-            if (res?.Items != null && res.Items.Count > 0) return res;
-
-            // 3. Proxy'ler üzerinden GET/POST
-            foreach (var proxy in PROXIES)
-            {
-                string proxiedUrl = $"{proxy.TrimEnd('/')}/?url={Uri.EscapeDataString(endpoint)}";
-                res = await SendRequestAsync(client, HttpMethod.Get, proxiedUrl, null);
-                if (res?.Items != null && res.Items.Count > 0) return res;
-
-                res = await SendRequestAsync(client, HttpMethod.Post, proxiedUrl, jsonBody);
-                if (res?.Items != null && res.Items.Count > 0) return res;
-            }
-        }
-
-        return null;
-    }
-
-    private static async Task<VavooResponse?> SendRequestAsync(HttpClient client, HttpMethod method, string url, string? jsonBody)
+    private static async Task<List<VavooItem>> TryFetchAsync(HttpClient client, string url)
     {
         try
         {
-            using var request = new HttpRequestMessage(method, url);
-            request.Headers.Add("User-Agent", "MediaHubMX/2.0.0");
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             request.Headers.Add("Accept", "application/json, text/plain, */*");
-            request.Headers.Add("Accept-Language", "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7");
-
-            if (method == HttpMethod.Post && !string.IsNullOrEmpty(jsonBody))
-            {
-                request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-            }
 
             var response = await client.SendAsync(request);
 
@@ -160,15 +120,30 @@ class Program
             {
                 var rawResponse = await response.Content.ReadAsStringAsync();
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                return JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
+
+                // 1. Dizi formatında doğrudan liste gelirse
+                try
+                {
+                    var directList = JsonSerializer.Deserialize<List<VavooItem>>(rawResponse, options);
+                    if (directList != null && directList.Count > 0) return directList;
+                }
+                catch { }
+
+                // 2. Obje içinde Items formatında gelirse
+                try
+                {
+                    var objResult = JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
+                    if (objResult?.Items != null && objResult.Items.Count > 0) return objResult.Items;
+                }
+                catch { }
             }
         }
         catch
         {
-            // Bağlantı reddi veya zamanaşımında sonraki kanala/proxy'ye geç
+            // Sonraki URL/Proxy denemesine geç
         }
 
-        return null;
+        return new List<VavooItem>();
     }
 
     private static bool IsTurkishChannel(VavooItem item)
