@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 
 class Program
 {
-    // Birincil ve Yedek Vavoo API Endpoints
     private static readonly string[] CATALOG_URLS = new[]
     {
         "https://vavoo.to/mediahubmx-catalog.json",
@@ -54,7 +53,8 @@ class Program
 
             if (rawItems.Count == 0)
             {
-                throw new Exception("API'den hicbir kanal verisi alinamadi. Sunucu istegi engellemis olabilir.");
+                Console.WriteLine("[UYARI] API'den hicbir kanal çekilemedi! Bos dosya olusturulmamasi icin islem durduruluyor.");
+                Environment.Exit(1);
             }
 
             var items = DeduplicateItems(rawItems);
@@ -119,7 +119,7 @@ class Program
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(FETCH_TIMEOUT_SECONDS) };
         
         client.DefaultRequestHeaders.Clear();
-        client.DefaultRequestHeaders.Add("User-Agent", "MediaHubMX/2.0.0");
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.DefaultRequestHeaders.Add("Origin", "https://vavoo.to");
         client.DefaultRequestHeaders.Add("Referer", "https://vavoo.to/");
@@ -165,7 +165,6 @@ class Program
         var jsonBody = JsonSerializer.Serialize(bodyObj);
         Exception? lastErr = null;
 
-        // Farklı Endpoint URL'leri ve Deneme Mantığı
         foreach (var targetUrl in CATALOG_URLS)
         {
             for (int attempt = 1; attempt <= MAX_RETRIES; attempt++)
