@@ -1,4 +1,4 @@
-Name: nernur liste
+name: nernur liste
 
 on:
   workflow_dispatch:
@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Kodu Cek
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4.2.2
 
       - name: .NET SDK Kurulumu
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v4.3.0
         with:
           dotnet-version: '8.0.x'
 
