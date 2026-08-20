@@ -10,7 +10,13 @@ using System.Threading.Tasks;
 
 class Program
 {
-    private const string CATALOG_URL = "https://vavoo.to/mediahubmx-catalog.json";
+    // Birincil ve Yedek Vavoo API Endpoints
+    private static readonly string[] CATALOG_URLS = new[]
+    {
+        "https://vavoo.to/mediahubmx-catalog.json",
+        "https://vavoo.to/vto-cluster/mediahubmx-catalog.json"
+    };
+
     private const string GROUP = "Turkey";
     private const string OUTPUT_FILENAME = "nernur.txt";
     private const int FETCH_TIMEOUT_SECONDS = 30;
@@ -41,11 +47,15 @@ class Program
             var parsedProxies = ParseProxies(envProxy);
             PROXY_LIST = parsedProxies.Count > 0 ? parsedProxies : FALLBACK_PROXIES;
 
-            Console.WriteLine($"[BILGI] Veri cekiliyor: {CATALOG_URL}");
             Console.WriteLine($"[BILGI] Aktif Proxy Sayisi: {PROXY_LIST.Count}");
 
             var rawItems = await FetchAllAsync();
             Console.WriteLine($"[BILGI] Toplam ham kanal sayısı: {rawItems.Count}");
+
+            if (rawItems.Count == 0)
+            {
+                throw new Exception("API'den hicbir kanal verisi alinamadi. Sunucu istegi engellemis olabilir.");
+            }
 
             var items = DeduplicateItems(rawItems);
             if (rawItems.Count != items.Count)
@@ -57,7 +67,6 @@ class Program
 
             var m3uContent = ToM3u(items);
 
-            // GitHub Runner calisma dizinine yazma
             string outputPath = Path.Combine(Directory.GetCurrentDirectory(), OUTPUT_FILENAME);
             await File.WriteAllTextAsync(outputPath, m3uContent, Encoding.UTF8);
 
@@ -103,10 +112,17 @@ class Program
         int page = 0;
         const int MAX_PAGES = 200;
 
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(FETCH_TIMEOUT_SECONDS) };
-        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        using var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+        };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(FETCH_TIMEOUT_SECONDS) };
+        
+        client.DefaultRequestHeaders.Clear();
+        client.DefaultRequestHeaders.Add("User-Agent", "MediaHubMX/2.0.0");
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.DefaultRequestHeaders.Add("Origin", "https://vavoo.to");
-        client.DefaultRequestHeaders.Add("Referer", "https://vavoo.to/live");
+        client.DefaultRequestHeaders.Add("Referer", "https://vavoo.to/");
 
         while (true)
         {
@@ -149,27 +165,38 @@ class Program
         var jsonBody = JsonSerializer.Serialize(bodyObj);
         Exception? lastErr = null;
 
-        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++)
+        // Farklı Endpoint URL'leri ve Deneme Mantığı
+        foreach (var targetUrl in CATALOG_URLS)
         {
-            try
+            for (int attempt = 1; attempt <= MAX_RETRIES; attempt++)
             {
-                var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-                var response = await client.PostAsync(CATALOG_URL, content);
-                response.EnsureSuccessStatusCode();
+                try
+                {
+                    var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                    var response = await client.PostAsync(targetUrl, content);
+                    
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var rawResponse = await response.Content.ReadAsStringAsync();
+                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        return JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[UYARI] {targetUrl} Yanit Kodu: {response.StatusCode}. Deneme {attempt}/{MAX_RETRIES}");
+                    }
+                }
+                catch (Exception err)
+                {
+                    lastErr = err;
+                    Console.WriteLine($"[UYARI] Deneme {attempt}/{MAX_RETRIES} basarisiz ({err.Message}). {attempt * 2}sn bekleniyor...");
+                }
 
-                var rawResponse = await response.Content.ReadAsStringAsync();
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                return JsonSerializer.Deserialize<VavooResponse>(rawResponse, options);
-            }
-            catch (Exception err)
-            {
-                lastErr = err;
-                Console.WriteLine($"[UYARI] Deneme {attempt}/{MAX_RETRIES} basarisiz ({err.Message}). {attempt * 2}sn bekleniyor...");
                 await Task.Delay(attempt * 2000);
             }
         }
 
-        throw lastErr ?? new Exception("Vavoo API baglantisi kurulamadi.");
+        throw lastErr ?? new Exception("Tüm Vavoo API bağlantı noktaları yanıt vermeyi reddetti.");
     }
 
     private static string SanitizeName(string? name)
