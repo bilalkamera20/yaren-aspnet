@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +13,7 @@ class Program
 {
     private const string GROUP = "Turkey";
     private const string OUTPUT_FILENAME = "nernur.txt";
-    private const int FETCH_TIMEOUT_SECONDS = 20;
+    private const int FETCH_TIMEOUT_SECONDS = 15;
 
     private static readonly List<string> PROXIES = new List<string>
     {
@@ -34,14 +35,14 @@ class Program
     {
         try
         {
-            Console.WriteLine("[BILGI] Vavoo API veri cekme islemi baslatiliyor...");
+            Console.WriteLine("[BILGI] Vavoo API veri cekme işlemi başlatılıyor...");
 
             var rawItems = await FetchAllAsync();
-            Console.WriteLine($"[BILGI] Toplam cekilen ham kanal sayisi: {rawItems.Count}");
+            Console.WriteLine($"[BILGI] Toplam çekilen ham kanal sayısı: {rawItems.Count}");
 
             if (rawItems.Count == 0)
             {
-                Console.WriteLine("[HATA] API'den hicbir kanal cekilemedi.");
+                Console.WriteLine("[HATA] API'den hiçbir kanal çekilemedi.");
                 Environment.Exit(1);
             }
 
@@ -52,7 +53,7 @@ class Program
             string outputPath = Path.Combine(Directory.GetCurrentDirectory(), OUTPUT_FILENAME);
             await File.WriteAllTextAsync(outputPath, m3uContent, Encoding.UTF8);
 
-            Console.WriteLine($"[BASARILI] Dosya olusturuldu: {outputPath} ({items.Count} kanal)");
+            Console.WriteLine($"[BASARILI] Dosya oluşturuldu: {outputPath} ({items.Count} kanal)");
         }
         catch (Exception ex)
         {
@@ -69,8 +70,10 @@ class Program
 
         using var handler = new HttpClientHandler
         {
-            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         };
+
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(FETCH_TIMEOUT_SECONDS) };
 
         while (true)
@@ -85,7 +88,7 @@ class Program
             }
             else
             {
-                Console.WriteLine($"Sayfa {page}: Veri alinamadi veya liste sonuna ulasildi.");
+                Console.WriteLine($"Sayfa {page}: Veri alınamadı veya liste sonuna ulaşıldı.");
                 break;
             }
 
@@ -116,16 +119,12 @@ class Program
 
         var jsonBody = JsonSerializer.Serialize(bodyObj);
 
+        // API İstek uç noktaları
         var endpoints = new List<string>
         {
             "https://vavoo.to/mediahubmx-catalog.json",
             "https://vavoo.to/vto-cluster/mediahubmx-catalog.json"
         };
-
-        foreach (var p in PROXIES)
-        {
-            endpoints.Add($"{p.TrimEnd('/')}/mediahubmx-catalog.json");
-        }
 
         foreach (var url in endpoints)
         {
@@ -133,11 +132,13 @@ class Program
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, url)
                 {
-                    Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
+                    Content = new StringContent(jsonBody, Encoding.UTF8, "application/json"),
+                    Version = HttpVersion.Version11 // HTTP/1.1 kullanımı zorunlu kılındı
                 };
 
                 request.Headers.Add("User-Agent", "MediaHubMX/2.0.0");
                 request.Headers.Add("Accept", "application/json");
+                request.Headers.Add("Accept-Encoding", "gzip, deflate");
 
                 var response = await client.SendAsync(request);
 
