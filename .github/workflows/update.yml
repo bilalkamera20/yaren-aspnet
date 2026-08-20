@@ -20,8 +20,11 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Projeyi Derle
+        run: dotnet build --configuration Release
+
       - name: C# Uygulamasini Calistir
-        run: dotnet run --configuration Release
+        run: dotnet run --project NernurListe.csproj --configuration Release
 
       - name: Degisiklikleri Kaydet ve Yukle
         env:
