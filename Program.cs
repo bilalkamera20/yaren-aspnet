@@ -12,11 +12,10 @@ class Program
 {
     private const string CATALOG_URL = "https://vavoo.to/mediahubmx-catalog.json";
     private const string GROUP = "Turkey";
-    private static readonly string M3U_FILE = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "nernur.txt");
-    private const int FETCH_TIMEOUT_SECONDS = 20;
+    private const string OUTPUT_FILENAME = "nernur.txt";
+    private const int FETCH_TIMEOUT_SECONDS = 30;
     private const int MAX_RETRIES = 5;
 
-    // Varsayılan Proxy Listesi
     private static readonly List<string> FALLBACK_PROXIES = new()
     {
         "https://halil.bilalkamera20.workers.dev",
@@ -38,40 +37,44 @@ class Program
     {
         try
         {
-            // Ortam değişkeninden (Environment Variable) proxy oku, yoksa varsayılanı kullan
             var envProxy = Environment.GetEnvironmentVariable("PROXY_BASE");
             var parsedProxies = ParseProxies(envProxy);
             PROXY_LIST = parsedProxies.Count > 0 ? parsedProxies : FALLBACK_PROXIES;
 
-            Console.WriteLine($"Veri çekiliyor: {CATALOG_URL} ...");
-            Console.WriteLine($"Aktif Proxy Sayısı: {PROXY_LIST.Count}");
+            Console.WriteLine($"[BILGI] Veri cekiliyor: {CATALOG_URL}");
+            Console.WriteLine($"[BILGI] Aktif Proxy Sayisi: {PROXY_LIST.Count}");
 
-            // API'den tüm verileri sayfa sayfa çek
             var rawItems = await FetchAllAsync();
-            Console.WriteLine($"Toplam çekilen ham kanal sayısı: {rawItems.Count}");
+            Console.WriteLine($"[BILGI] Toplam ham kanal sayısı: {rawItems.Count}");
 
-            // Mükerrer yayınları temizle
             var items = DeduplicateItems(rawItems);
             if (rawItems.Count != items.Count)
             {
-                Console.WriteLine($"Mükerrer yayınlar temizlendi. Kalan kanal sayısı: {items.Count}");
+                Console.WriteLine($"[BILGI] Mukerrer yayinlar temizlendi. Kalan: {items.Count}");
             }
 
-            // Kanalları temizlenmiş isimlerine göre alfabetik sırala
             items = items.OrderBy(x => SanitizeName(x.Name).ToLowerInvariant()).ToList();
 
-            // M3U içeriğini oluştur ve dosyaya yaz
             var m3uContent = ToM3u(items);
-            
-            // GitHub Actions'ın kök dizininde 'nernur.txt' oluşması için:
-            string outputPath = Path.Combine(Directory.GetCurrentDirectory(), "nernur.txt");
+
+            // GitHub Runner calisma dizinine yazma
+            string outputPath = Path.Combine(Directory.GetCurrentDirectory(), OUTPUT_FILENAME);
             await File.WriteAllTextAsync(outputPath, m3uContent, Encoding.UTF8);
 
-            Console.WriteLine($"İşlem başarıyla tamamlandı: {outputPath} ({items.Count} kanal eklendi)");
+            Console.WriteLine($"[BASARILI] Dosya olusturuldu: {outputPath} ({items.Count} kanal)");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Kritik Hata: {ex.Message}");
+            Console.WriteLine($"\n==================== HATA DETAYI ====================");
+            Console.WriteLine($"Hata Mesaji : {ex.Message}");
+            Console.WriteLine($"Hata Tipi   : {ex.GetType().FullName}");
+            Console.WriteLine($"Izleme (Trace):\n{ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Ic Hata     : {ex.InnerException.Message}");
+            }
+            Console.WriteLine($"=====================================================\n");
+            
             Environment.Exit(1);
         }
     }
@@ -101,7 +104,7 @@ class Program
         const int MAX_PAGES = 200;
 
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(FETCH_TIMEOUT_SECONDS) };
-        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/151.0.0.0 Safari/537.36");
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         client.DefaultRequestHeaders.Add("Origin", "https://vavoo.to");
         client.DefaultRequestHeaders.Add("Referer", "https://vavoo.to/live");
 
@@ -115,7 +118,7 @@ class Program
                 items.AddRange(data.Items);
             }
 
-            Console.WriteLine($"Sayfa {page}: {data?.Items?.Count ?? 0} kanal çekildi. (Next Cursor: {data?.NextCursor ?? "null"})");
+            Console.WriteLine($"Sayfa {page}: {data?.Items?.Count ?? 0} kanal eklendi. (NextCursor: {data?.NextCursor ?? "null"})");
 
             cursor = data?.NextCursor;
 
@@ -161,12 +164,12 @@ class Program
             catch (Exception err)
             {
                 lastErr = err;
-                Console.WriteLine($"Deneme {attempt}/{MAX_RETRIES} başarısız ({err.Message}). {attempt}s sonra tekrar deneniyor...");
-                await Task.Delay(attempt * 1000);
+                Console.WriteLine($"[UYARI] Deneme {attempt}/{MAX_RETRIES} basarisiz ({err.Message}). {attempt * 2}sn bekleniyor...");
+                await Task.Delay(attempt * 2000);
             }
         }
 
-        throw lastErr ?? new Exception("İstek zaman aşımına uğradı veya sunucu yanıt vermiyor.");
+        throw lastErr ?? new Exception("Vavoo API baglantisi kurulamadi.");
     }
 
     private static string SanitizeName(string? name)
@@ -250,7 +253,6 @@ class Program
     }
 }
 
-// JSON Yanıt Modelleri
 public class VavooResponse
 {
     public List<VavooItem>? Items { get; set; }
