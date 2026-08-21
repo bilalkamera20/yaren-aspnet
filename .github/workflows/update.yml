@@ -24,7 +24,7 @@ jobs:
         run: dotnet build --configuration Release
 
       - name: C# Uygulamasini Calistir
-        run: dotnet run --project NernurListe.csproj --configuration Release
+        run: dotnet run --project balkica.csproj --configuration Release
 
       - name: Degisiklikleri Kaydet ve Yukle
         env:
