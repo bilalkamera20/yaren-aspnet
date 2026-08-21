@@ -64,8 +64,8 @@ class Program
 
                 var payload = new VavooPayload
                 {
-                    Language = "tr",
-                    Region = "TR",
+                    Language = "en",
+                    Region = "ALL",
                     CatalogId = "iptv",
                     Id = "iptv",
                     Adult = false,
