@@ -1,4 +1,4 @@
-name: nernur liste
+name: Nernur Güncelle
 
 on:
   workflow_dispatch:
