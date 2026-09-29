@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -13,7 +14,8 @@ class Program
     private const string CATALOG_URL = "https://vavoo.to/vto-cluster/mediahubmx-catalog.json";
     private const string OUTPUT_FILE = "nernur.txt";
 
-    private static readonly List<string> WORKER_PROXIES = new List<string>
+    // Yedek (Fallback) Proxy Listesi
+    private static readonly List<string> FALLBACK_PROXIES = new List<string>
     {
         "https://1.vavturktv.workers.dev",
         "https://2.vavturktv.workers.dev",
@@ -57,11 +59,35 @@ class Program
         "https://ner.bilalkamera20.workers.dev"
     };
 
+    private static List<string> GetWorkerProxies()
+    {
+        string? envProxyBase = Environment.GetEnvironmentVariable("PROXY_BASE");
+        if (!string.IsNullOrWhiteSpace(envProxyBase))
+        {
+            var parsedProxies = envProxyBase
+                .Split(new[] { ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Trim())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToList();
+
+            if (parsedProxies.Count > 0)
+            {
+                Console.WriteLine($"[BİLGİ] {parsedProxies.Count} adet proxy PROXY_BASE ortam değişkeninden yüklendi.");
+                return parsedProxies;
+            }
+        }
+
+        Console.WriteLine($"[BİLGİ] PROXY_BASE ortam değişkeni bulunamadı. Yedek ({FALLBACK_PROXIES.Count} adet) proxy listesi kullanılıyor.");
+        return FALLBACK_PROXIES;
+    }
+
     static async Task Main(string[] args)
     {
         try
         {
             Console.WriteLine("[DEBUG] Uygulama başlatıldı.");
+
+            var workerProxies = GetWorkerProxies();
 
             using var handler = new HttpClientHandler
             {
@@ -83,7 +109,7 @@ class Program
             int pageCount = 0;
             int maxPages = 200;
             int proxyIndex = 0;
-            int proxyCount = WORKER_PROXIES.Count;
+            int proxyCount = workerProxies.Count;
 
             var output = new StringBuilder("#EXTM3U\n");
 
@@ -166,7 +192,7 @@ class Program
 
                         string logo = !string.IsNullOrEmpty(item.Logo) ? $" tvg-logo=\"{item.Logo}\"" : "";
 
-                        string proxy = WORKER_PROXIES[proxyIndex];
+                        string proxy = workerProxies[proxyIndex];
                         proxyIndex = (proxyIndex + 1) % proxyCount;
 
                         string proxiedUrl = $"{proxy.TrimEnd('/')}/?url={Uri.EscapeDataString(item.Url)}&master&transport=http&.m3u8";
