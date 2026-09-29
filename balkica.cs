@@ -15,16 +15,46 @@ class Program
 
     private static readonly List<string> WORKER_PROXIES = new List<string>
     {
+        "https://1.vavturktv.workers.dev",
+        "https://2.vavturktv.workers.dev",
+        "https://3.vavturktv.workers.dev",
+        "https://4.vavturktv.workers.dev",
+        "https://5.vavturktv.workers.dev",
+        "https://6.vavturktv.workers.dev",
+        "https://7.vavturktv.workers.dev",
+        "https://8.vavturktv.workers.dev",
+        "https://9.vavturktv.workers.dev",
+        "https://10.vavturktv.workers.dev",
+        "https://11.vavturktv.workers.dev",
+        "https://12.vavturktv.workers.dev",
+        "https://13.vavturktv.workers.dev",
+        "https://14.vavturktv.workers.dev",
+        "https://15.vavturktv.workers.dev",
+        "https://16.vavturktv.workers.dev",
+        "https://17.vavturktv.workers.dev",
+        "https://18.vavturktv.workers.dev",
+        "https://19.vavturktv.workers.dev",
+        "https://20.vavturktv.workers.dev",
+        "https://21.vavturktv.workers.dev",
+        "https://22.vavturktv.workers.dev",
+        "https://23.vavturktv.workers.dev",
+        "https://24.vavturktv.workers.dev",
+        "https://25.vavturktv.workers.dev",
+        "https://nur.bilalkamera20.workers.dev",
         "https://halil.bilalkamera20.workers.dev",
         "https://adam.bilalkamera20.workers.dev",
-        "https://ner.bilalkamera20.workers.dev",
-        "https://nur.bilalkamera20.workers.dev",
-        "https://vavoo-iptv-proxy.bilalkamera20.workers.dev",
-        "https://nernur.bilalkamera20.workers.dev",
-        "https://balkica.bilalkamera20.workers.dev",
         "https://bilal.bilalkamera20.workers.dev",
+        "https://balkica.bilalkamera20.workers.dev",
+        "https://hmeb.bilalkamera20.workers.dev",
+        "https://nernur.bilalkamera20.workers.dev",
         "https://vav20.bilalkamera20.workers.dev",
-        "https://hmeb.bilalkamera20.workers.dev"
+        "https://vavoo-iptv-proxy.bilalkamera20.workers.dev",
+        "https://yaren.bilalkamera20.workers.dev",
+        "https://denem.bilalkamera20.workers.dev",
+        "https://20.bilalkamera20.workers.dev",
+        "https://yw.bilalkamera20.workers.dev",
+        "https://fb.bilalkamera20.workers.dev",
+        "https://ner.bilalkamera20.workers.dev"
     };
 
     static async Task Main(string[] args)
@@ -46,7 +76,7 @@ class Program
             client.DefaultRequestHeaders.Add("X-MediaHubMX-Signature", "");
             client.DefaultRequestHeaders.Add("Connection", "keep-alive");
 
-            object cursor = 0;
+            object? cursor = 0;
             bool hasNext = true;
             var seenCursors = new HashSet<string>();
             var seenUrls = new HashSet<string>();
@@ -153,7 +183,10 @@ class Program
                     }
                     else
                     {
-                        seenCursors.Add(cursor.ToString() ?? "");
+                        if (cursor != null)
+                        {
+                            seenCursors.Add(cursor.ToString() ?? "");
+                        }
                         cursor = nextCursor;
                     }
                 }
@@ -180,13 +213,9 @@ class Program
         if (string.IsNullOrWhiteSpace(name)) return "Bilinmeyen Kanal";
 
         string s = name;
-        // 1. Baştaki "4K TR:", "TR:", "4K TR :" gibi ifadeleri kaldırır
         s = Regex.Replace(s, @"^\s*(?:4K\s*)?TR\s*:\s*", "", RegexOptions.IgnoreCase);
-        // 2. Sondaki veya kelime aralarındaki .b, .c, .s gibi nokta uzantılarını kaldırır
         s = Regex.Replace(s, @"\s*\.[bcs]\b", "", RegexOptions.IgnoreCase);
-        // 3. Çözünürlük ve yayın kalitesi etiketlerini temizler
         s = Regex.Replace(s, @"\s+(?:4K|UHD|FHD|HD\+|HD|SD|HEVC|RAW|H265|H\.265|FEED)(?=\s|$)", "", RegexOptions.IgnoreCase);
-        // 4. Fazla boşlukları temizler
         s = Regex.Replace(s, @"\s+", " ");
 
         return s.Trim();
