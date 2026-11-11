@@ -57,7 +57,7 @@ class Program
             if (string.IsNullOrEmpty(signature))
             {
                 Console.WriteLine("Hata: İmza alınamadı!");
-                return;
+                Environment.Exit(1);
             }
 
             List<Dictionary<string, string>> allChannels = new List<Dictionary<string, string>>();
@@ -70,7 +70,7 @@ class Program
             if (allChannels.Count == 0)
             {
                 Console.WriteLine("Hata: Kanal bulunamadı!");
-                return;
+                Environment.Exit(1);
             }
 
             string m3uContent = BuildM3u(allChannels, workerProxies);
@@ -329,7 +329,12 @@ class Program
                 });
             }
 
-            cursor = data["nextCursor"]?.Value<int>() ?? 0;
+            var nextCursorToken = data["nextCursor"];
+            if (nextCursorToken == null || nextCursorToken.Type == JTokenType.Null)
+            {
+                break;
+            }
+            cursor = nextCursorToken.Value<int>();
             if (cursor == 0) break;
         }
         return channels;
