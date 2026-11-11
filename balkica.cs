@@ -44,36 +44,46 @@ class Program
 
     static async Task Main(string[] args)
     {
-        List<string> workerProxies = ParseEnvProxies();
-        if (workerProxies.Count == 0)
+        try
         {
-            workerProxies = FallbackProxies;
-        }
+            List<string> workerProxies = ParseEnvProxies();
+            if (workerProxies.Count == 0)
+            {
+                workerProxies = FallbackProxies;
+            }
 
-        Console.WriteLine("İmza alınıyor...");
-        string signature = await GetSignatureAsync();
-        if (string.IsNullOrEmpty(signature))
+            Console.WriteLine("İmza alınıyor...");
+            string signature = await GetSignatureAsync();
+            if (string.IsNullOrEmpty(signature))
+            {
+                Console.WriteLine("Hata: İmza alınamadı!");
+                return;
+            }
+
+            List<Dictionary<string, string>> allChannels = new List<Dictionary<string, string>>();
+            foreach (var g in DefaultGroups)
+            {
+                var channels = await FetchCatalogGroupAsync(g, signature);
+                allChannels.AddRange(channels);
+            }
+
+            if (allChannels.Count == 0)
+            {
+                Console.WriteLine("Hata: Kanal bulunamadı!");
+                return;
+            }
+
+            string m3uContent = BuildM3u(allChannels, workerProxies);
+            File.WriteAllText(OUTPUT_FILE, m3uContent, Encoding.UTF8);
+            Console.WriteLine($"Başarılı! {allChannels.Count} kanal işlendi ve '{OUTPUT_FILE}' dosyasına kaydedildi.");
+        }
+        catch (Exception ex)
         {
-            Console.WriteLine("Hata: İmza alınamadı!");
-            return;
+            Console.WriteLine("KRİTİK HATA OLUŞTU:");
+            Console.WriteLine(ex.Message);
+            Console.WriteLine(ex.StackTrace);
+            Environment.Exit(1);
         }
-
-        List<Dictionary<string, string>> allChannels = new List<Dictionary<string, string>>();
-        foreach (var g in DefaultGroups)
-        {
-            var channels = await FetchCatalogGroupAsync(g, signature);
-            allChannels.AddRange(channels);
-        }
-
-        if (allChannels.Count == 0)
-        {
-            Console.WriteLine("Hata: Kanal bulunamadı!");
-            return;
-        }
-
-        string m3uContent = BuildM3u(allChannels, workerProxies);
-        File.WriteAllText(OUTPUT_FILE, m3uContent, Encoding.UTF8);
-        Console.WriteLine($"Başarılı! {allChannels.Count} kanal işlendi ve '{OUTPUT_FILE}' dosyasına kaydedildi.");
     }
 
     private static List<string> ParseEnvProxies()
