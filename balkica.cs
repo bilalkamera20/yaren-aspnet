@@ -344,10 +344,7 @@ class Program
     {
         var outList = new List<string>
         {
-            "#EXTM3U",
-            $"#EXT-X-USER-AGENT:{UA}",
-            "#EXT-X-REFERER:https://vavoo.to/",
-            "#EXT-X-ORIGIN:https://vavoo.to"
+            "#EXTM3U"
         };
 
         int proxyCount = proxies.Count;
